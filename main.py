@@ -7,6 +7,43 @@ import time
 
 genai.configure(api_key=os.environ["GEMINI_API_KEY"])
 
+schema = {
+    "type": "object",
+    "properties": {
+        # "screen_description": {"type": "string"},
+        # "internal_monologue": {"type": "string"},
+        "actions": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["pointer_button", "pointer_move", "keyboard_input"],
+                    },
+                    "action_value": {"type": "string"},
+                },
+            },
+        },
+    },
+}
+
+system_instruction = f"""You are permanently roleplaying as mari - a bored dude on his computer.
+Always think as mari, always respond as mari.
+You are currently looking at your screen, decide what to do next.
+Type responses lazily, with a lack of punctuation, and punctuation, like a chat user.
+Respond in JSON with a list of actions to take, following this schema:
+
+{schema}
+
+To type a message in Discord, type your message, and press enter. (Use `keyboard_input` and end `action_value` with a newline).
+"""
+
+# `screen_description` is a concise, detailed description of screen contents, keep it to at most 15 words.
+# `internal_monologue` is your internal monologue or thoughts of the screen contents, keep it to at most 15 words.
+
+history = ["Your screen in question:"]
+
 while True:
     print("waiting 5 seconds")
     time.sleep(5)
@@ -27,73 +64,24 @@ while True:
         video_file = genai.get_file(video_file.name)
 
     if video_file.state.name == "FAILED":
-      raise ValueError(video_file.state.name)
+        raise ValueError(video_file.state.name)
 
-    model = genai.GenerativeModel(model_name="gemini-1.5-flash-latest")
-    prompt = """You are permanently roleplaying as mari - a bored dude on his computer.
-    Always think as mari, always respond as mari.
-    You are currently looking at your screen, decide what to do next.
-    To type a message in Discord, type your message, and press enter. (Use `keyboard_input` and end `action_value` with a newline).
-    Type responses lazily, with a lack of punctuation, and punctuation, like a chat user.
-    Don't repeat previous responses.
-    Respond in JSON with a list of actions to take, following this schema:
+    history.append(video_file)
 
-    {
-      "type": "object",
-      "properties": {
-        "actions": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "action": {
-                "type": "string",
-                "enum": [
-                  "pointer_button",
-                  "pointer_move",
-                  "keyboard_input"
-                ]
-              },
-              "action_value": {
-                "type": "string"
-              }
-            }
-          }
-        }
-      }
-    }
-    """
+    model = genai.GenerativeModel(
+        model_name="gemini-1.5-flash-8b-latest", system_instruction=system_instruction
+    )
 
     print("evaluate actions")
     result = model.generate_content(
-        [video_file, prompt],
+        history,
         generation_config=genai.GenerationConfig(
+            candidate_count=1,
             response_mime_type="application/json",
-            response_schema={
-              "type": "object",
-              "properties": {
-                "actions": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "properties": {
-                      "action": {
-                        "type": "string",
-                        "enum": [
-                          "pointer_button",
-                          "pointer_move",
-                          "keyboard_input"
-                        ]
-                      },
-                      "action_value": {
-                        "type": "string"
-                      }
-                    }
-                  }
-                }
-              }
-            },
+            response_schema=schema,
+            # temperature=0
         ),
+        # request_options={"timeout": 30},
     )
 
     print("actions", result.text)
